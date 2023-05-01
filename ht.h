@@ -35,7 +35,7 @@ struct LinearProber : public Prober<KeyType> {
     {
         // Complete the condition below that indicates failure
         // to find the key or an empty slot
-        if( /* Fill me in */ ) {
+        if(this->numProbes_ == this->m_) {
             return this->npos; 
         }
         HASH_INDEX_T loc = (this->start_ + this->numProbes_) % this->m_;
@@ -102,9 +102,12 @@ public:
     // To be completed
     HASH_INDEX_T next() 
     {
-
-
-
+        if(this->numProbes_ == this->m_){
+            return this->npos;
+        }
+        HASH_INDEX_T location = (this->start_ + this->numProbes_ * dhstep_) % this->m_;
+        this->numProbes_++;
+        return location;
     }
 };
 
@@ -268,6 +271,9 @@ private:
     // prime capacities to be used when resizing/rehashing is needed
     static const HASH_INDEX_T CAPACITIES[];
     HASH_INDEX_T mIndex_;  // index to CAPACITIES
+    double alpha_;
+    HASH_INDEX_T numObj_;
+    HASH_INDEX_T numDeleted_;
 
     // ADD MORE DATA MEMBERS HERE, AS NECESSARY
 
@@ -290,46 +296,82 @@ const HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::CAPACITIES[] =
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 HashTable<K,V,Prober,Hash,KEqual>::HashTable(
     double resizeAlpha, const Prober& prober, const Hasher& hash, const KEqual& kequal)
-       :  hash_(hash), kequal_(kequal), prober_(prober)
+       :  hash_(hash), kequal_(kequal), prober_(prober), alpha_(resizeAlpha), numObj_(0), totalProbes_(0), mIndex_(0), numDeleted_(0)
 {
     // Initialize any other data members as necessary
-
+    table_.resize(CAPACITIES[mIndex_], nullptr);
 }
 
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 HashTable<K,V,Prober,Hash,KEqual>::~HashTable()
 {
-
+    for(HashItem* h:table_){
+        if(h){
+            delete h;
+        }
+        }
 }
 
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 bool HashTable<K,V,Prober,Hash,KEqual>::empty() const
 {
-
+    if(size()){
+        return false;
+    }
+    return true;
 }
 
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 size_t HashTable<K,V,Prober,Hash,KEqual>::size() const
 {
-
+    return numObj_ - numDeleted_;
 }
 
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 void HashTable<K,V,Prober,Hash,KEqual>::insert(const ItemType& p)
 {
+   double insertload = double(numObj_) / double(CAPACITIES[mIndex_]);
+   
+    if(insertload >= alpha_){
+        resize();
+    }
 
+    typename HashTable< K,V,Prober,Hash, KEqual>:: HashItem* h = internalFind(p.first);
+    if(h){
+        if(!(h->deleted)){
+            (h->item).second = p.second;
+            return;
+        }
+    }
 
+    HASH_INDEX_T location = this->probe(p.first);
+
+    if(location != npos){
+        table_[location] = new HashItem(p);
+
+        numObj_++;
+    }
+    else{
+        throw std::logic_error("Cannot insert");
+    }
+
+   
+    
 }
 
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 void HashTable<K,V,Prober,Hash,KEqual>::remove(const KeyType& key)
 {
-
+    typename HashTable<K,V,Prober, Hash, KEqual>::HashItem* h = internalFind(key);
+    if(h){
+        h->deleted = true;
+        this->numDeleted_++;
+    }
 
 }
 
@@ -405,7 +447,18 @@ template<typename K, typename V, typename Prober, typename Hash, typename KEqual
 void HashTable<K,V,Prober,Hash,KEqual>::resize()
 {
 
+    std::vector<HashItem*> oldtable = table_;
+    this->table_ = std::vector<HashItem*>(this->CAPACITIES[++this->mIndex_], nullptr);
     
+    numObj_ = 0;
+    numDeleted_  = 0;
+    for(uint32_t i = 0; i < oldtable.size(); i++){
+        if(oldtable[i] != nullptr && !oldtable[i]->deleted) {
+            insert(oldtable[i]->item);
+            delete oldtable[i];
+        }
+    }
+
 }
 
 // Almost complete
@@ -424,8 +477,10 @@ HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::probe(const KeyType& key) const
         }
         // fill in the condition for this else if statement which should 
         // return 'loc' if the given key exists at this location
-        else if(/* Fill me in */) {
+        else if(kequal_(key,(table_[loc]->item).first)) {
+            if(!table_[loc]->deleted){
             return loc;
+            }
         }
         loc = prober_.next();
         totalProbes_++;
